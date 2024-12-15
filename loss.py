@@ -23,8 +23,8 @@ def criterion(y_true, y_pred, mask, theta=0.1, max_depth_val=1000.0/10.0, device
 
         dx_pred, dy_pred = dx_pred[mask], dy_pred[mask]
         dx_true, dy_true = dx_true[mask], dy_true[mask]
-        # y_pred = y_pred[mask]
-        # y_true = y_true[mask]
+        y_pred = y_pred[mask]
+        y_true = y_true[mask]
 
     l_depth = torch.mean(torch.abs(y_true-y_pred))
 
