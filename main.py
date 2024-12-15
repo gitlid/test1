@@ -24,6 +24,7 @@ from models.HidingUNet import UnetGenerator
 from models.DDNet import DDNet
 from vgg import Vgg16
 from loss import criterion
+from metrics import DepthEstimateScore
 import torch.cuda.amp as amp
 import gc
 
@@ -411,14 +412,16 @@ def validation(val_loader,  epoch, net):
     data_time = AverageMeter()
     losses_l1 = AverageMeter()
     losses_mse = AverageMeter()
-    abs_rel_diff = AverageMeter()
+    # abs_rel_diff = AverageMeter()
     # log_mse_losses = AverageMeter()
     Vallosses = AverageMeter()
     Vgglosses = AverageMeter()
     total_losses = AverageMeter()
-    a1_thresh = AverageMeter()
-    a2_thresh = AverageMeter()
-    a3_thresh = AverageMeter()
+    # a1_thresh = AverageMeter()
+    # a2_thresh = AverageMeter()
+    # a3_thresh = AverageMeter()
+    scores = DepthEstimateScore()
+
 
     # losses_l1_2 = AverageMeter()
     # losses_mse_2 = AverageMeter()
@@ -459,7 +462,7 @@ def validation(val_loader,  epoch, net):
             # loss_mse_2 = mse_loss(pred_depth2, depth_gt_var) * opt.betamse
 
             # log_los_mse = mse_loss(torch.log(pred_depth + 1), torch.log(depth_gt_var + 1))
-            abs_rel = torch.mean(torch.abs(depth_gt_var[mask[:,None]] - pred_depth[mask[:,None]]) / depth_gt_var[mask[:,None]])
+            # abs_rel = torch.mean(torch.abs(depth_gt_var[mask[:,None]] - pred_depth[mask[:,None]]) / depth_gt_var[mask[:,None]])
 
             # abs_rel_2 = torch.mean(torch.abs(depth_gt_var[mask[:,None]] - pred_depth2[mask[:,None]]) / depth_gt_var[mask[:,None]])
 
@@ -477,11 +480,11 @@ def validation(val_loader,  epoch, net):
             # val_loss = silog_loss(pred_depth, depth_gt_var, mask=mask) * opt.beta
 
             # Combine losses with appropriate weights
-            total_loss =  loss_mse + loss_l1 + vgg_loss + val_loss + abs_rel
+            total_loss =  loss_mse + loss_l1 + vgg_loss + val_loss
 
             # total_loss_2 = loss_mse_2 + loss_l1_2 + vgg_loss_2 + val_loss_2 + abs_rel_2
 
-            a1, a2, a3 = compute_errors(pred_depth.detach(), depth_gt_var.detach())
+            # a1, a2, a3 = compute_errors(pred_depth.detach(), depth_gt_var.detach())
 
             # a1_2, a2_2, a3_2 = compute_errors(pred_depth2.detach(), depth_gt_var.detach())
 
@@ -489,14 +492,15 @@ def validation(val_loader,  epoch, net):
             # Record loss
             losses_mse.update(loss_mse.item(), this_batch_size)
             # log_mse_losses.update(log_los_mse.item(), this_batch_size)
-            abs_rel_diff.update(abs_rel, this_batch_size)
+            # abs_rel_diff.update(abs_rel, this_batch_size)
             losses_l1.update(loss_l1.item(), this_batch_size)
             Vgglosses.update(vgg_loss.item(), this_batch_size)
             Vallosses.update(val_loss.item(), this_batch_size)
             total_losses.update(total_loss.item(), this_batch_size)
-            a1_thresh.update(a1, this_batch_size)
-            a2_thresh.update(a2, this_batch_size)
-            a3_thresh.update(a3, this_batch_size)
+            # a1_thresh.update(a1, this_batch_size)
+            # a2_thresh.update(a2, this_batch_size)
+            # a3_thresh.update(a3, this_batch_size)
+            scores.update(label_true=depth_gt_var[mask[:,None]].detach().cpu(), label_pred=pred_depth[mask[:,None]].detach().cpu())
 
             # losses_mse_2.update(loss_mse_2.item(), this_batch_size)
             # log_mse_losses.update(log_los_mse.item(), this_batch_size)
@@ -522,11 +526,16 @@ def validation(val_loader,  epoch, net):
         val_log = "validation[%d] time is %.4f======================================================================" % (
             epoch, batch_time.sum) + "\n"
         # val_log = val_log + 'net1======================================================================\n'
-        val_log = val_log + (f"losses_l1={losses_l1.avg:.6f}\tloss_mse={losses_mse.avg:.6f}\tloss_vgg={Vgglosses.avg:.6f}\n"
-                             f"loss_val={Vallosses.avg:.6f}\tabs_rel={abs_rel_diff.avg:.6f}\n"
-                             f"total_losses={total_losses.avg:.6f}")
-        val_log = val_log + f"\n a1={a1_thresh.avg:.6f}\t a2={a2_thresh.avg:.6f}\t a3={a3_thresh.avg:.6f}"
+        val_log = val_log + (f"total_losses={total_losses.avg:.6f}\n"
+                             f"losses_l1={losses_l1.avg:.6f}\tloss_mse={losses_mse.avg:.6f}\tloss_vgg={Vgglosses.avg:.6f}\n"
+                             f"loss_val={Vallosses.avg:.6f}")
+        # val_log = val_log + f"\n a1={a1_thresh.avg:.6f}\t a2={a2_thresh.avg:.6f}\t a3={a3_thresh.avg:.6f}"
         print_log(val_log, logPath)
+        score = scores.get_scores()
+        for k, v in score.items():
+            print_log("{}: {}".format(k, v), logPath)
+            # logger.info("{}: {}".format(k, v))
+            writer.add_scalar("val_metrics/{}".format(k), v, i + 1)
 
         # val_log = 'net2======================================================================\n'
         # val_log_2 = val_log + (f"losses_l1={losses_l1_2.avg:.6f}\tloss_mse={losses_mse_2.avg:.6f}\tloss_vgg={Vgglosses_2.avg:.6f}\n"
@@ -539,13 +548,13 @@ def validation(val_loader,  epoch, net):
         # writer.add_scalar("lr/beta", opt.beta, epoch)
         writer.add_scalar("val/loss/losses_l1", losses_l1.avg, epoch)
         writer.add_scalar("val/loss/losses_mse", losses_mse.avg, epoch)
-        writer.add_scalar("val/loss/abs_rel", abs_rel_diff.avg, epoch)
+        # writer.add_scalar("val/loss/abs_rel", abs_rel_diff.avg, epoch)
         writer.add_scalar("val/loss/vgg_loss", Vgglosses.avg, epoch)
         writer.add_scalar("val/loss/val_loss", Vallosses.avg, epoch)
         writer.add_scalar("val/loss/total_loss", total_losses.avg, epoch)
-        writer.add_scalar("val_metrics/a1", a1_thresh.avg, epoch)
-        writer.add_scalar("val_metrics/a2", a2_thresh.avg, epoch)
-        writer.add_scalar("val_metrics/a3", a3_thresh.avg, epoch)
+        # writer.add_scalar("val_metrics/a1", a1_thresh.avg, epoch)
+        # writer.add_scalar("val_metrics/a2", a2_thresh.avg, epoch)
+        # writer.add_scalar("val_metrics/a3", a3_thresh.avg, epoch)
 
         # writer.add_scalar("val/loss/losses_l1_2", losses_l1_2.avg, epoch)
         # writer.add_scalar("val/loss/losses_mse_2", losses_mse_2.avg, epoch)
@@ -558,7 +567,7 @@ def validation(val_loader,  epoch, net):
         # writer.add_scalar("val_metrics/a3_2", a3_thresh_2.avg, epoch)
     print("#################################################### validation end ########################################################")
 
-    return total_losses.avg, a1_thresh.avg, abs_rel_diff.avg, Vallosses.avg
+    return total_losses.avg, score['a1'], score['abs_rel'], Vallosses.avg
 
 
 # custom weights initialization called on netG and netD
