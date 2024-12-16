@@ -1,0 +1,3 @@
+[submodule "model3"]
+	path = model3
+	url = https://github.com/isl-org/ZoeDepth.git
